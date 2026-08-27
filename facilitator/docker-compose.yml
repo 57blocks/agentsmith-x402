@@ -1,0 +1,10 @@
+services:
+  stellar-facilitator:
+    build: .
+    env_file: .env
+    environment:
+      # Bind inside the container, while the published host port remains loopback-only.
+      HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:8407:8407"
+    restart: unless-stopped
