@@ -1,0 +1,40 @@
+{
+  "name": "@agentsmith/stellar-facilitator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted x402 v2 facilitator for Stellar exact payments.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "testnet:create-account": "tsx scripts/create-testnet-account.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.2.0",
+    "@x402/core": "^2.23.0",
+    "@x402/stellar": "^2.23.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

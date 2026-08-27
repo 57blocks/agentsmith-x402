@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentsmith.xyz/schemas/bazaar-listing.json",
+  "title": "Bazaar listing",
+  "description": "What a resource server submits to be cataloged. Shapes follow the x402 bazaar extension: resource identity, discovery info and payment requirements.",
+  "type": "object",
+  "required": ["resource", "info", "accepts"],
+  "additionalProperties": false,
+  "properties": {
+    "resource": {
+      "type": "object",
+      "required": ["url", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "url":         { "type": "string", "format": "uri" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "mimeType":    { "type": "string" },
+        "serviceName": { "type": "string", "maxLength": 32,
+                         "description": "Printable ASCII, <= 32 chars per the bazaar extension." },
+        "tags":        { "type": "array", "maxItems": 5, "items": { "type": "string", "maxLength": 32 } },
+        "iconUrl":     { "type": "string", "format": "uri" }
+      }
+    },
+
+    "info": {
+      "type": "object",
+      "required": ["input"],
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["type", "method"],
+              "properties": {
+                "type":        { "const": "http" },
+                "method":      { "enum": ["GET", "HEAD", "DELETE", "POST", "PUT", "PATCH"] },
+                "bodyType":    { "enum": ["json", "form-data", "text"] },
+                "body":        {},
+                "queryParams": { "type": "object" },
+                "headers":     { "type": "object" },
+                "schema":      { "type": "object", "description": "JSON Schema for the parameters." }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "toolName", "inputSchema"],
+              "properties": {
+                "type":        { "const": "mcp" },
+                "toolName":    { "type": "string" },
+                "description": { "type": "string" },
+                "inputSchema": { "type": "object" },
+                "transport":   { "enum": ["streamable-http", "sse"] },
+                "example":     { "type": "object" }
+              }
+            }
+          ]
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "type":      { "type": "string" },
+            "format":    { "type": "string" },
+            "structure": { "type": "string", "description": "High-level output shape. Helps distinguish similar services." },
+            "schema":    { "type": "object" },
+            "example":   {}
+          }
+        }
+      }
+    },
+
+    "accepts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["scheme", "network", "asset", "maxAmountRequired", "payTo"],
+        "properties": {
+          "scheme":            { "enum": ["exact", "upto"] },
+          "network":           { "type": "string", "description": "CAIP-2 identifier, e.g. stellar:pubnet" },
+          "asset":             { "type": "string" },
+          "maxAmountRequired": { "type": "string", "description": "Decimal string in asset units." },
+          "payTo":             { "type": "string" },
+          "maxTimeoutSeconds": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
