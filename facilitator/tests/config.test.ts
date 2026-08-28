@@ -66,4 +66,14 @@ describe('facilitator configuration', () => {
     expect(() => loadConfig(env({ STELLAR_NETWORK: 'eip155:84532' }))).toThrow(/STELLAR_NETWORK/);
     expect(() => loadConfig(env({ STELLAR_RPC_URL: 'http://rpc.example.com' }))).toThrow(/HTTPS/);
   });
+
+  it('requires a token for the optional Bazaar settlement callback', () => {
+    expect(() => loadConfig(env({
+      BAZAAR_SETTLEMENT_URL: 'http://127.0.0.1:8402/discovery/settlements',
+    }))).toThrow(/BAZAAR_SETTLEMENT_API_KEY/);
+    expect(loadConfig(env({
+      BAZAAR_SETTLEMENT_URL: 'http://127.0.0.1:8402/discovery/settlements',
+      BAZAAR_SETTLEMENT_API_KEY: 'bazaar-secret',
+    })).bazaarSettlementUrl).toBe('http://127.0.0.1:8402/discovery/settlements');
+  });
 });

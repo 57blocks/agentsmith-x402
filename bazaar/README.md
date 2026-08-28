@@ -25,6 +25,8 @@ registers it. Provider projects can live in another repository; point their regi
 at this Bazaar instance after the service is healthy.
 
 `npm run reset` drops and rebuilds. `DATABASE_URL`, `PORT`, and `MCP_PORT` override the defaults.
+Set `BAZAAR_SETTLEMENT_API_KEY` to enable the authenticated settlement callback used by the
+Facilitator.
 
 ## Inspecting the catalog
 
@@ -57,6 +59,11 @@ exactly as the lexical branch does. Useful psql meta-commands: `\dt` tables,
 | `GET /discovery/resources?…` | browse, offset pagination |
 | `GET /discovery/resources/:id` | full listing including raw metadata |
 | `POST /discovery/register` | catalog a listing |
+| `POST /discovery/settlements` | record a successful settlement (server-to-server) |
+
+`/discovery/settlements` requires `Authorization: Bearer $BAZAAR_SETTLEMENT_API_KEY`.
+The Facilitator posts the transaction hash, resource URL, network, and payer after settlement.
+Transaction hashes are idempotent, so retries do not inflate the listing's settlement count.
 
 Search accepts `type`, `network`, `asset`, `scheme`, `maxPriceUsd`, `limit`. Filters passed
 explicitly on the URL are treated as caller-asserted and override anything parsed from the
@@ -171,9 +178,14 @@ Returns a `bazaar.status` outcome with the assigned `resource_id`. MCP tools are
 The registration endpoint is unauthenticated in this build. Keep it on a private network or put
 it behind an API gateway before exposing the Bazaar service publicly.
 
-Listings currently project the first `accepts[]` entry and its legacy
-`maxAmountRequired` value into `price_usd`. This is sufficient for the current demo catalog but
-is not the final v2 atomic-amount representation.
+Listings project the first `accepts[]` entry. The v2 `amount` field is stored as an atomic-unit
+integer. For known 7-decimal Stellar USDC contracts, the catalog also derives the display price.
+Legacy `maxAmountRequired` remains accepted: integer strings are treated as atomic units, while
+decimal strings are converted only when the asset's decimal precision is known.
+
+Re-registering the same resource URL updates its payment terms, including network, asset,
+scheme, recipient, and amount. Run `npm run migrate` before deploying this version so existing
+databases receive the `amount_atomic` and settlement-journal columns.
 
 ## Not in this build
 

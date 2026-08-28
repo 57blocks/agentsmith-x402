@@ -18,6 +18,8 @@ export interface FacilitatorConfig {
   rateLimitMax: number;
   settlementCacheTtlMs: number;
   settlementCacheMaxEntries: number;
+  bazaarSettlementUrl?: string;
+  bazaarSettlementApiKey?: string;
   trustProxy: string[];
   corsOrigins: '*' | string[];
   shutdownTimeoutMs: number;
@@ -78,6 +80,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): FacilitatorCon
     throw new Error('STELLAR_RPC_URL is required on pubnet');
   }
 
+  const bazaarSettlementUrl = env.BAZAAR_SETTLEMENT_URL?.trim()
+    ? url('BAZAAR_SETTLEMENT_URL', env.BAZAAR_SETTLEMENT_URL.trim())
+    : undefined;
+  const bazaarSettlementApiKey = env.BAZAAR_SETTLEMENT_API_KEY?.trim() || undefined;
+  if (bazaarSettlementUrl && !bazaarSettlementApiKey) {
+    throw new Error('BAZAAR_SETTLEMENT_API_KEY is required when BAZAAR_SETTLEMENT_URL is configured');
+  }
+
   const cors = env.CORS_ORIGINS?.trim() || '*';
   return {
     port,
@@ -110,6 +120,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): FacilitatorCon
       env.SETTLEMENT_CACHE_MAX_ENTRIES,
       10_000,
     ),
+    bazaarSettlementUrl,
+    bazaarSettlementApiKey,
     trustProxy: list(env.TRUST_PROXY || 'loopback,linklocal,uniquelocal'),
     corsOrigins: cors === '*' ? '*' : list(cors),
     shutdownTimeoutMs: positiveInteger(

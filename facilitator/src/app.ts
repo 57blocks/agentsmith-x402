@@ -9,6 +9,7 @@ import { createStellarPaymentEngine, type PaymentEngine } from './engine.js';
 import { logger, type Logger } from './logger.js';
 import { SettlementCoordinator, settlementKey } from './settlement-coordinator.js';
 import { facilitatorRequestSchema, validationMessage, type FacilitatorRequest } from './validation.js';
+import { reportSettlement } from './bazaar.js';
 
 export interface AppOptions {
   config: FacilitatorConfig;
@@ -115,6 +116,13 @@ export function createApp(options: AppOptions) {
           paymentPayload as PaymentPayload,
           paymentRequirements as PaymentRequirements,
         ),
+      );
+      await reportSettlement(
+        config,
+        paymentPayload as PaymentPayload,
+        paymentRequirements as PaymentRequirements,
+        response,
+        log,
       );
       res.json(response);
     } catch (error) {
