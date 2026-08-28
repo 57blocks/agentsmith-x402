@@ -2,9 +2,25 @@
 
 import { createHash } from 'node:crypto';
 import { query } from './db.js';
+import { decimalsForAsset } from './assets.js';
 
 class ValidationError extends Error {
   constructor(msg, field) { super(msg); this.field = field; this.status = 400; }
+}
+
+function amountAtomic(requirement) {
+  const raw = requirement.amount ?? requirement.maxAmountRequired;
+  const text = String(raw ?? '').trim();
+  if (/^[0-9]+$/.test(text)) return text;
+
+  const decimals = decimalsForAsset(requirement.asset);
+  if (!decimals || !/^\d+(?:\.\d+)?$/.test(text)) return null;
+  const [whole, fraction = ''] = text.split('.');
+  if (fraction.length > decimals) {
+    throw new ValidationError(`accepts[0] amount has more than ${decimals} decimal places`, 'accepts[0].amount');
+  }
+  return (BigInt(whole) * (10n ** BigInt(decimals))
+    + BigInt(fraction.padEnd(decimals, '0'))).toString();
 }
 
 const PRINTABLE_ASCII = /^[\x20-\x7E]*$/;
@@ -29,10 +45,16 @@ export function validate(listing) {
   if (!Array.isArray(accepts) || accepts.length === 0) throw new ValidationError('accepts must be a non-empty array', 'accepts');
 
   const primaryRequirement = accepts[0];
-  for (const field of ['scheme', 'network', 'asset', 'maxAmountRequired', 'payTo']) {
+  for (const field of ['scheme', 'network', 'asset', 'payTo']) {
     if (!primaryRequirement[field]) {
       throw new ValidationError(`accepts[0].${field} is required`, `accepts[0].${field}`);
     }
+  }
+  if (!primaryRequirement.amount && !primaryRequirement.maxAmountRequired) {
+    throw new ValidationError(
+      'accepts[0].amount or maxAmountRequired is required',
+      'accepts[0].amount',
+    );
   }
   if (!['exact', 'upto'].includes(primaryRequirement.scheme)) {
     throw new ValidationError('accepts[0].scheme must be exact or upto', 'accepts[0].scheme');
@@ -73,7 +95,17 @@ export function project(listing) {
   // amount as a USD-comparable number.
   const network = String(primaryRequirement.network).toLowerCase().replace(/^stellar$/, 'stellar:pubnet');
   const asset = String(primaryRequirement.asset).toUpperCase();
-  const priceUsd = Number(primaryRequirement.maxAmountRequired);
+  const amount = amountAtomic(primaryRequirement);
+  if (!amount) {
+    throw new ValidationError(
+      'accepts[0].amount or maxAmountRequired must be a numeric amount',
+      'accepts[0].amount',
+    );
+  }
+  const decimals = decimalsForAsset(asset);
+  const priceUsd = decimals
+    ? Number(amount) / (10 ** decimals)
+    : Number(primaryRequirement.maxAmountRequired ?? amount);
   if (!Number.isFinite(priceUsd)) {
     throw new ValidationError(
       'accepts[0].maxAmountRequired must be numeric',
@@ -102,7 +134,7 @@ export function project(listing) {
     id,
     raw_metadata: listing,
     normalized_metadata: {
-      network, asset, price_usd: priceUsd, scheme: primaryRequirement.scheme,
+      network, asset, amount_atomic: amount, price_usd: priceUsd, scheme: primaryRequirement.scheme,
       service_name: serviceName, tags,
       normalized_at: new Date().toISOString(),
       normalizer_version: '1'
@@ -120,6 +152,7 @@ export function project(listing) {
     network,
     asset,
     scheme: primaryRequirement.scheme,
+    amount_atomic: amount,
     price_usd: priceUsd,
     resource_url: resource.url,
     tool_name: info.input.toolName || null,
@@ -127,16 +160,14 @@ export function project(listing) {
   };
 }
 
-export async function upsert(listing, extra = {}) {
-  const projected = project(listing);
-  const sql = `
+export const UPSERT_SQL = `
     INSERT INTO resources (
       id, raw_metadata, normalized_metadata, enrichment_metadata, enrichment_version,
       service_name, description, tags, input_params, output_params, output_structure,
       search_title, search_body, search_params,
-      type, transport, network, asset, scheme, price_usd,
+      type, transport, network, asset, scheme, amount_atomic, price_usd,
       resource_url, tool_name, pay_to, payable, payable_reason, settlements, last_settled_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
     ON CONFLICT (resource_url, COALESCE(tool_name, '')) DO UPDATE SET
       raw_metadata = EXCLUDED.raw_metadata,
       normalized_metadata = EXCLUDED.normalized_metadata,
@@ -149,17 +180,27 @@ export async function upsert(listing, extra = {}) {
       search_title = EXCLUDED.search_title,
       search_body = EXCLUDED.search_body,
       search_params = EXCLUDED.search_params,
+      type = EXCLUDED.type,
+      transport = EXCLUDED.transport,
+      network = EXCLUDED.network,
+      asset = EXCLUDED.asset,
+      scheme = EXCLUDED.scheme,
+      amount_atomic = EXCLUDED.amount_atomic,
       price_usd = EXCLUDED.price_usd,
+      pay_to = EXCLUDED.pay_to,
       payable = EXCLUDED.payable,
       payable_reason = EXCLUDED.payable_reason,
       updated_at = now()
-    RETURNING id, service_name, type, network, asset, price_usd, payable`;
+    RETURNING id, service_name, type, network, asset, amount_atomic, price_usd, payable`;
 
-  const { rows } = await query(sql, [
+export async function upsert(listing, extra = {}) {
+  const projected = project(listing);
+
+  const { rows } = await query(UPSERT_SQL, [
     projected.id, projected.raw_metadata, projected.normalized_metadata, projected.enrichment_metadata, projected.enrichment_version,
     projected.service_name, projected.description, projected.tags, JSON.stringify(projected.input_params), JSON.stringify(projected.output_params), projected.output_structure,
     projected.search_title, projected.search_body, projected.search_params,
-    projected.type, projected.transport, projected.network, projected.asset, projected.scheme, projected.price_usd,
+    projected.type, projected.transport, projected.network, projected.asset, projected.scheme, projected.amount_atomic, projected.price_usd,
     projected.resource_url, projected.tool_name, projected.pay_to,
     extra.payable ?? true, extra.payable_reason ?? null,
     extra.settlements ?? 0, extra.last_settled_at ?? null

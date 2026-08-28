@@ -2,6 +2,7 @@
  * Selective keyword matching keeps common words from returning the whole catalog. */
 
 import { query } from './db.js';
+import { addressesForSymbol } from './assets.js';
 
 /** Words carrying no selective signal. Dropped before matching so a natural
  *  sentence is treated as the keywords inside it. */
@@ -26,19 +27,28 @@ export function keywords(capability) {
 function buildFilters(hard, params) {
   const where = ['payable = TRUE'];
   if (hard.network)     { params.push(hard.network.value);      where.push(`network = $${params.length}`); }
-  if (hard.asset)       { params.push(hard.asset.value);        where.push(`asset = $${params.length}`); }
+  if (hard.asset) {
+    const knownAssets = addressesForSymbol(hard.asset.value, hard.network?.value);
+    const assetValues = knownAssets.length ? knownAssets : [hard.asset.value];
+    params.push(assetValues.length === 1 ? assetValues[0] : assetValues);
+    where.push(assetValues.length === 1
+      ? `asset = $${params.length}`
+      : `asset = ANY($${params.length}::text[])`);
+  }
   if (hard.type)        { params.push(hard.type.value);         where.push(`type = $${params.length}`); }
   if (hard.scheme)      { params.push(hard.scheme.value);       where.push(`scheme = $${params.length}`); }
   if (hard.maxPriceUsd) {
     params.push(hard.maxPriceUsd.value);
-    where.push(`asset = 'USDC' AND price_usd <= $${params.length}`);
+    const usdcAssets = addressesForSymbol('USDC');
+    params.push(usdcAssets);
+    where.push(`asset = ANY($${params.length}::text[]) AND price_usd <= $${params.length - 1}`);
   }
   return where;
 }
 
 const SELECT_COLS = `
   id, service_name, description, tags, input_params, output_params, output_structure,
-  type, transport, network, asset, scheme, price_usd, resource_url, tool_name, pay_to,
+  type, transport, network, asset, scheme, amount_atomic, price_usd, resource_url, tool_name, pay_to,
   payable, payable_reason, settlements, last_settled_at, enrichment_metadata`;
 
 /** Fraction of the catalog above which a keyword is treated as too common to
@@ -67,9 +77,11 @@ const MATCH_SCORE = `(
   FROM unnest($1::text[]) AS t
 )`;
 
-/** At least one selective keyword must appear in the listing. */
+/** At least one selective keyword must identify the service itself. Output
+ * schemas often contain generic words such as "data" and "text"; letting
+ * those body-only terms select a listing creates surprising false positives. */
 const MATCH_ANY_SELECTIVE = `EXISTS (
-  SELECT 1 FROM sel WHERE resources.${SEARCHABLE.slice(1, -1)} ~* ('\\m' || sel.t)
+  SELECT 1 FROM sel WHERE (resources.search_title || ' ' || resources.search_params) ~* ('\\m' || sel.t)
 )`;
 
 export async function retrieve(understood) {

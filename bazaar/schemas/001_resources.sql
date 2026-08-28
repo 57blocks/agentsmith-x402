@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS resources (
   network             TEXT        NOT NULL,
   asset               TEXT        NOT NULL,
   scheme              TEXT        NOT NULL DEFAULT 'exact' CHECK (scheme IN ('exact','upto')),
+  amount_atomic       NUMERIC(78,0) NOT NULL,
   price_usd           NUMERIC(12,6) NOT NULL,
 
   -- rejoined after ranking, never sent to the ranking layer
@@ -66,6 +67,10 @@ CREATE TABLE IF NOT EXISTS resources (
   ) STORED
 );
 
+-- Keep upgrades from an earlier catalog schema deployable. Existing rows are
+-- left nullable until their provider re-registers with a v2 atomic amount.
+ALTER TABLE resources ADD COLUMN IF NOT EXISTS amount_atomic NUMERIC(78,0);
+
 -- MCP tools are keyed on (resource.url, input.toolName) per the Bazaar spec,
 -- since one MCP endpoint multiplexes many tools.
 CREATE UNIQUE INDEX IF NOT EXISTS resources_identity
@@ -81,3 +86,17 @@ CREATE INDEX IF NOT EXISTS resources_network_idx ON resources (network);
 CREATE INDEX IF NOT EXISTS resources_asset_idx   ON resources (asset);
 CREATE INDEX IF NOT EXISTS resources_type_idx    ON resources (type);
 CREATE INDEX IF NOT EXISTS resources_price_idx   ON resources (price_usd);
+
+-- One row per successful on-chain settlement. The transaction hash is the
+-- idempotency key: retries from a resource server or facilitator must not
+-- inflate the catalog's usage facts.
+CREATE TABLE IF NOT EXISTS settlement_events (
+  transaction_hash TEXT PRIMARY KEY,
+  resource_url     TEXT NOT NULL,
+  network          TEXT NOT NULL,
+  payer            TEXT,
+  settled_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS settlement_events_resource_idx
+  ON settlement_events (resource_url, settled_at DESC);

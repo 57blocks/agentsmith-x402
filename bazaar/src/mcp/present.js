@@ -10,6 +10,7 @@ export function presentResult(row, available) {
     url: row.resource_url,
     network: row.network,
     asset: row.asset,
+    amount: row.amount_atomic == null ? undefined : String(row.amount_atomic),
     price_usd: Number(row.price_usd),
     tags: row.tags || [],
     match_score: row.match !== undefined ? Number(Number(row.match).toFixed(2)) : undefined,

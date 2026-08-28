@@ -32,3 +32,9 @@ test('explicit filter replaces a parsed constraint for the same key', () => {
   assert.equal(u.hard.type.value, 'mcp');
   assert.equal(u.hard.type.confidence, 1);
 });
+
+test('the Weather showcase query selects the USDC testnet catalog', () => {
+  const u = buildUnderstood({ query: 'current METAR weather report, USDC, Stellar testnet' });
+  assert.equal(u.hard.asset.value, 'USDC');
+  assert.equal(u.hard.network.value, 'stellar:testnet');
+});

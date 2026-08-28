@@ -6,7 +6,8 @@ import { query, pool } from '../src/db.js';
 const schemasDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'schemas');
 
 if (process.argv.includes('--drop')) {
-  console.log('[migrate] dropping resources');
+  console.log('[migrate] dropping catalog tables');
+  await query('DROP TABLE IF EXISTS settlement_events CASCADE');
   await query('DROP TABLE IF EXISTS resources CASCADE');
   await query('DROP FUNCTION IF EXISTS resource_search_doc(resources) CASCADE');
 }

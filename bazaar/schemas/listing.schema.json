@@ -74,11 +74,16 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["scheme", "network", "asset", "maxAmountRequired", "payTo"],
+        "required": ["scheme", "network", "asset", "payTo"],
+        "anyOf": [
+          { "required": ["amount"] },
+          { "required": ["maxAmountRequired"] }
+        ],
         "properties": {
           "scheme":            { "enum": ["exact", "upto"] },
           "network":           { "type": "string", "description": "CAIP-2 identifier, e.g. stellar:pubnet" },
           "asset":             { "type": "string" },
+          "amount":            { "type": "string", "pattern": "^[0-9]+$", "description": "Payment amount in atomic asset units (v2)." },
           "maxAmountRequired": { "type": "string", "description": "Decimal string in asset units." },
           "payTo":             { "type": "string" },
           "maxTimeoutSeconds": { "type": "integer" }

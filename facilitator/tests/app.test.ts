@@ -167,6 +167,37 @@ describe('Stellar facilitator HTTP interface', () => {
     expect(settle).toHaveBeenCalledOnce();
   });
 
+  it('reports a successful settlement to Bazaar when configured', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const app = createApp({
+      config: config({
+        bazaarSettlementUrl: 'http://127.0.0.1:8402/discovery/settlements',
+        bazaarSettlementApiKey: 'bazaar-secret',
+      }),
+      engine: engine(),
+      log: silentLogger,
+    });
+    const requestBody = structuredClone(body);
+    requestBody.paymentPayload.resource = { url: 'https://agentsmith.xyz/metar/v1/metar' };
+
+    const response = await request(app).post('/settle')
+      .set('authorization', `Bearer ${apiKey}`)
+      .send(requestBody);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:8402/discovery/settlements');
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer bazaar-secret');
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      transaction: 'abc123',
+      resource_url: 'https://agentsmith.xyz/metar/v1/metar',
+      network: 'stellar:testnet',
+    });
+    vi.unstubAllGlobals();
+  });
+
   it('uses a server-to-server bearer token when configured', async () => {
     const app = createApp({
       config: config({ apiKey: 'resource-server-only' }),

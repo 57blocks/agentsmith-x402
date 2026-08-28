@@ -1,6 +1,7 @@
 /** HTTP endpoints for the Bazaar catalog and its MCP transport. */
 
 import http from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { buildUnderstood } from './query.js';
 import { retrieve, withheldUnpayable } from './retrieval.js';
 import * as callability from './callability.js';
@@ -8,6 +9,8 @@ import { upsert, ValidationError } from './ingest.js';
 import { query, pool } from './db.js';
 import { handleMcp } from './mcp/handler.js';
 import { readJson } from './http-body.js';
+import { recordSettlement } from './settlements.js';
+import { addressesForSymbol } from './assets.js';
 
 const PORT = Number(process.env.PORT || 8402);
 // Keep MCP on a separate port so it can be deployed and scaled independently.
@@ -50,6 +53,7 @@ function present(row, understood) {
       scheme: row.scheme,
       network: row.network,
       asset: row.asset,
+      amount: row.amount_atomic == null ? undefined : String(row.amount_atomic),
       maxAmountRequired: Number(row.price_usd).toFixed(6).replace(/0+$/, '').replace(/\.$/, ''),
       payTo: row.pay_to
     }],
@@ -137,9 +141,19 @@ async function handleSearch(url, res) {
 async function handleBrowse(url, res) {
   const where = ['1=1'];
   const params = [];
+  const networkFilter = url.searchParams.get('network');
   for (const [param, col] of [['network', 'network'], ['asset', 'asset'], ['type', 'type'], ['scheme', 'scheme']]) {
     const v = url.searchParams.get(param);
-    if (v && v !== 'All') { params.push(param === 'asset' ? v.toUpperCase() : v); where.push(`${col} = $${params.length}`); }
+    if (v && v !== 'All') {
+      if (param === 'asset') {
+        const assetValues = addressesForSymbol(v.toUpperCase(), networkFilter);
+        params.push(assetValues.length === 1 ? assetValues[0] : assetValues.length ? assetValues : v.toUpperCase());
+        where.push(assetValues.length > 1 ? `${col} = ANY($${params.length}::text[])` : `${col} = $${params.length}`);
+      } else {
+        params.push(v);
+        where.push(`${col} = $${params.length}`);
+      }
+    }
   }
   const payTo = url.searchParams.get('payTo');
   if (payTo) { params.push(payTo); where.push(`pay_to = $${params.length}`); }
@@ -184,8 +198,10 @@ async function handleStats(res) {
       network: await distinct('network'),
       asset: await distinct('asset'),
       // Only USDC rows have a USD comparison in the current catalog.
-      price_usd: (await query("SELECT DISTINCT price_usd AS v FROM resources WHERE asset = 'USDC' ORDER BY 1"))
-        .rows.map((r) => Number(r.v))
+      price_usd: (await query(
+        'SELECT DISTINCT price_usd AS v FROM resources WHERE asset = ANY($1::text[]) ORDER BY 1',
+        [addressesForSymbol('USDC')],
+      )).rows.map((r) => Number(r.v))
     }
   });
 }
@@ -210,6 +226,55 @@ async function handleRegister(req, res) {
   });
 }
 
+function settlementAuthorized(req) {
+  const expected = process.env.BAZAAR_SETTLEMENT_API_KEY?.trim();
+  if (!expected) return false;
+  const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const actualHash = createHash('sha256').update(provided).digest();
+  const expectedHash = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(actualHash, expectedHash);
+}
+
+async function handleSettlement(req, res) {
+  if (!process.env.BAZAAR_SETTLEMENT_API_KEY?.trim()) {
+    return send(res, 503, { error: 'settlement reporting is not configured', code: 'settlement_reporting_unavailable' });
+  }
+  if (!settlementAuthorized(req)) {
+    return send(res, 401, { error: 'Bearer token required', code: 'unauthorized' });
+  }
+
+  const body = await readJson(req);
+  const transactionHash = typeof body?.transaction === 'string' ? body.transaction.trim() : '';
+  const resourceUrl = typeof body?.resource_url === 'string' ? body.resource_url.trim() : '';
+  const network = typeof body?.network === 'string' ? body.network.trim() : '';
+  const payer = typeof body?.payer === 'string' ? body.payer.trim() : null;
+  if (!transactionHash || !resourceUrl || !network) {
+    return send(res, 400, {
+      error: 'transaction, resource_url and network are required',
+      code: 'invalid_settlement',
+    });
+  }
+  try {
+    new URL(resourceUrl);
+  } catch {
+    return send(res, 400, { error: 'resource_url must be an absolute URL', code: 'invalid_settlement' });
+  }
+
+  const result = await recordSettlement({ transactionHash, resourceUrl, network, payer });
+  if (result.conflict) {
+    return send(res, 409, { error: 'transaction already belongs to another resource', code: 'settlement_conflict' });
+  }
+  if (!result.found) {
+    return send(res, 404, { error: 'no listing for resource_url', code: 'resource_not_found' });
+  }
+  return send(res, result.recorded ? 201 : 200, {
+    bazaar: { status: result.recorded ? 'recorded' : 'already_recorded' },
+    resource_id: result.id,
+    settlements: result.settlements,
+    last_settled_at: result.last_settled_at,
+  });
+}
+
 // ---------------------------------------------------------------- server
 
 const server = http.createServer(async (req, res) => {
@@ -229,6 +294,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/discovery/resources') return await handleBrowse(url, res);
     if (req.method === 'GET' && url.pathname.startsWith('/discovery/resources/'))
       return await handleDetail(decodeURIComponent(url.pathname.split('/').pop()), res);
+    if (req.method === 'POST' && url.pathname === '/discovery/settlements') return await handleSettlement(req, res);
     if (req.method === 'POST' && url.pathname === '/discovery/register') return await handleRegister(req, res);
 
     send(res, 404, { error: 'no such route', code: 'not_found', path: url.pathname });

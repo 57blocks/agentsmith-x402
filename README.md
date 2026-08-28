@@ -6,7 +6,7 @@ Stellar Facilitator.
 
 ## Components
 
-- [`bazzar/`](bazzar/README.md) — PostgreSQL-backed discovery API and MCP search service.
+- [`bazaar/`](bazaar/README.md) — PostgreSQL-backed discovery API and MCP search service.
 - [`facilitator/`](facilitator/README.md) — authenticated Stellar `exact` payment verification
   and settlement service using `@x402/stellar`.
 
@@ -18,7 +18,7 @@ Facilitator never handles provider credentials or invokes the paid resource.
 Start PostgreSQL and create a database named `bazaar`, then run Bazaar:
 
 ```bash
-cd bazzar
+cd bazaar
 npm ci
 cp .env.example .env
 npm run migrate

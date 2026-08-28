@@ -50,6 +50,8 @@ curl -H "Authorization: Bearer $FACILITATOR_API_KEY" http://localhost:8407/suppo
 | `MAX_TRANSACTION_FEE_STROOPS` | `50000` | Hard cap on sponsored fees; matches the SDK default and may be raised deliberately after testnet measurement |
 | `FACILITATOR_STELLAR_FEE_BUMP_SECRET` | unset | Separate high-throughput fee payer |
 | `FACILITATOR_STELLAR_CHANNEL_SECRETS` | unset | Comma-separated channel-account secrets |
+| `BAZAAR_SETTLEMENT_URL` | unset | Bazaar settlement callback endpoint |
+| `BAZAAR_SETTLEMENT_API_KEY` | unset | Bearer token for the Bazaar callback |
 
 Every network refuses to start without `FACILITATOR_API_KEY`. Keep port 8407 private: buyers call the
 paid Resource Server, while only that server calls the Facilitator. The supplied Docker Compose
@@ -63,6 +65,11 @@ pair. Do not expose port 8407 directly to buyers or the public internet.
 - `/supported` returns only public signer addresses. `/verify` may return the public payer address. `/settle` returns the public payer and transaction hash.
 - Never return an API key/token/secret after a paid API or MCP call. The paid response is the requested resource plus the `PAYMENT-RESPONSE` settlement receipt. Upstream provider credentials remain inside the resource server.
 - Logs intentionally exclude authorization headers, payment payloads, signatures, and private keys.
+
+When both Bazaar callback variables are configured, each successful settlement is reported with
+its transaction hash, resource URL, network, and payer. The callback is best-effort and
+idempotent: an unavailable Bazaar is logged but does not turn an already-settled payment into a
+failed payment.
 
 ## Idempotency and scaling
 
